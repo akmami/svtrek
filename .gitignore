@@ -8,5 +8,8 @@
 # svtrek
 svtrek
 
+# locally cloned/built htslib (created by `make` when no system htslib is found)
+deps/htslib/
+
 misc/sim_out
 misc/slurm.*
