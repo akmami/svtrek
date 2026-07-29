@@ -35,7 +35,10 @@ char *line_queue_pop(line_queue *queue, pthread_mutex_t *queue_mutex, pthread_co
     while (queue->size == 0 && *(exit_signal) == 0) {
         pthread_cond_wait(cond_not_empty, queue_mutex);
     }
-    if (*(exit_signal) == 1) {
+    // Only stop once the queue has been fully drained. Checking exit_signal
+    // alone would discard lines that were still queued when the producer
+    // finished (the producer can set exit_signal before any worker pops).
+    if (queue->size == 0 && *(exit_signal) == 1) {
         pthread_mutex_unlock(queue_mutex);
         return NULL;
     }
@@ -175,24 +178,41 @@ void thread_func(void *_params) {
         switch (sv_type_enum) {
         case SV_INS:
             {
-                interval begin = {pos - targs->median_interval, pos + targs->median_interval};
+                uint32_t begin_start = pos > (uint32_t)targs->median_interval ? pos - targs->median_interval : 1;
+                interval begin = {begin_start, pos + targs->median_interval};
                 uint32_t result;
-                insertion(chrom_index, begin, pos, targs, &result);
+                sv_consensus cons;
+                insertion(chrom_index, begin, pos, targs, &result, &cons);
+
+                pthread_mutex_lock(targs->out_err_mutex);
                 if (result == 0xFFFFFFFF) {
-                    printf("(INS) chr: %d, org pos: %u, ref pos: NA\n", chrom_index, pos);
+                    printf("(INS) chr: %d, org pos: %u, ref pos: NA", chrom_index, pos);
                 } else {
-                    printf("(INS) chr: %d, org pos: %u, ref pos: %u, diff: %d\n", chrom_index, pos, result, result-pos);
+                    printf("(INS) chr: %d, org pos: %u, ref pos: %u, diff: %d", chrom_index, pos, result, result-pos);
                 }
+                if (cons.seq != NULL) {
+                    printf(", cons_len: %d, support: %d, cons: %.60s%s\n", cons.len, cons.support, cons.seq, cons.len > 60 ? "..." : "");
+                } else {
+                    printf(", cons_len: NA\n");
+                }
+                pthread_mutex_unlock(targs->out_err_mutex);
+
+                sv_consensus_free(&cons);
             }
             break;
         case SV_DEL:
             {
                 if (__SV_MIN_LENGTH < end-pos) {
-                    interval del_begin = {pos - targs->wider_interval, pos + targs->narrow_interval};
-                    interval del_end = {end - targs->narrow_interval, end + targs->narrow_interval};
+                    uint32_t del_begin_start = pos > (uint32_t)targs->wider_interval ? pos - targs->wider_interval : 1;
+                    uint32_t del_end_start = end > (uint32_t)targs->narrow_interval ? end - targs->narrow_interval : 1;
+                    interval del_begin = {del_begin_start, pos + targs->narrow_interval};
+                    interval del_end = {del_end_start, end + targs->narrow_interval};
                     interval sv_inter = {pos, end};
                     interval result;
-                    deletion(chrom_index, del_begin, del_end, sv_inter, targs, &result);
+                    sv_consensus cons;
+                    deletion(chrom_index, del_begin, del_end, sv_inter, targs, &result, &cons);
+
+                    pthread_mutex_lock(targs->out_err_mutex);
                     printf("(DEL) chr: %d, org pos: %u, org end: %u, ref pos: ", chrom_index, sv_inter.start, sv_inter.end);
                     if (result.start == 0xFFFFFFFF) {
                         printf("NA, ref end: ");
@@ -211,22 +231,37 @@ void thread_func(void *_params) {
                         printf("diff pos: %d, ", result.start-pos);
                     }
                     if (result.end == 0xFFFFFFFF) {
-                        printf("diff end: NA\n");
+                        printf("diff end: NA");
                     } else {
-                        printf("diff end: %d\n", result.end-end);
+                        printf("diff end: %d", result.end-end);
                     }
+                    if (cons.seq != NULL) {
+                        printf(", cons_len: %d, support: %d\n", cons.len, cons.support);
+                    } else {
+                        printf(", cons_len: NA\n");
+                    }
+                    pthread_mutex_unlock(targs->out_err_mutex);
+
+                    sv_consensus_free(&cons);
                 }
             }
             break;
         case SV_INV:
-            {   
+            {
                 if (__SV_MIN_LENGTH < end-pos) {
-                    interval inv_begin = {pos - targs->wider_interval, pos + targs->wider_interval};
-                    interval inv_end = {end - targs->wider_interval, end + targs->wider_interval};
+                    uint32_t inv_begin_start = pos > (uint32_t)targs->wider_interval ? pos - targs->wider_interval : 1;
+                    uint32_t inv_end_start = end > (uint32_t)targs->wider_interval ? end - targs->wider_interval : 1;
+                    interval inv_begin = {inv_begin_start, pos + targs->wider_interval};
+                    interval inv_end = {inv_end_start, end + targs->wider_interval};
                     interval sv_inter = {pos, end};
                     interval result;
                     inversion(chrom_index, inv_begin, inv_end, sv_inter, targs, &result);
-                    printf("(INV) chr: %d, org pos: %u, org end: %u, ref pos: %u, ref end: %u\n", chrom_index, pos, end, result.start, result.end);
+
+                    pthread_mutex_lock(targs->out_err_mutex);
+                    printf("(INV) chr: %d, org pos: %u, org end: %u, ref pos: ", chrom_index, pos, end);
+                    if (result.start == 0xFFFFFFFF) printf("NA, ref end: "); else printf("%u, ref end: ", result.start);
+                    if (result.end == 0xFFFFFFFF) printf("NA\n"); else printf("%u\n", result.end);
+                    pthread_mutex_unlock(targs->out_err_mutex);
                 }
             }
             break;

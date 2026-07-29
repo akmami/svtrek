@@ -5,7 +5,7 @@
 #include "refinement.h"
 
 
-int sliding_window_ins(int chrom, interval inter, t_arg *params, int windowSize, int slideSize) {
+int refine_ins_disc(int chrom, interval inter, t_arg *params, int windowSize, int slideSize) {
     int bestCandidateOverall = -1; 
     int maxSupportOverall = 0;
 

@@ -1,0 +1,42 @@
+# human.params -- Homo sapiens (GRCh38-scale) approximate profile.
+# Densities are per-individual vs the reference.
+
+# ~1 SNP per kb between an individual and the reference
+SNP_PER_KB=1.0
+
+# SV insertions/deletions: order ~few per Mb genome-wide
+INDEL_PER_MB=6
+INDEL_MIN=50
+INDEL_MAX=100000
+
+# duplications
+DUP_PER_MB=0.5
+DUP_MIN=200
+DUP_MAX=50000
+DUP_MAX_COPIES=3
+
+# inversions (rare)
+INV_PER_MB=0.03
+INV_MIN=500
+INV_MAX=100000
+
+# translocations off by default
+TRA_PER_MB=0
+TRA_MIN=1000
+TRA_MAX=5000
+
+INVDEL_PER_MB=0
+INVDEL_MIN=100
+INVDEL_MAX=5000
+INVDUP_PER_MB=0
+INVDUP_MIN=100
+INVDUP_MAX=5000
+
+HOM_RATIO=0.45
+N_HAPLOID=1
+
+DEPTH=30
+READ_MEAN_LEN=15000
+READ_SD_LEN=4000
+READ_IDENTITY=99.5,100,0.5
+MINIMAP_PRESET=map-hifi

@@ -1,0 +1,57 @@
+# ecoli.params -- Escherichia coli (~4.64 Mb) approximate profile.
+# Single circular chromosome, K-12 MG1655 ~4,641,652 bp. HAPLOID.
+
+# SNPs
+# ~1% core-genome divergence (=10 SNP/kb) is typical between two DISTINCT
+# strains. Tune this to the comparison you want:
+#   ~0.5-1.0  closely related isolates (same ST / recent clone)
+#   ~10       distinct strains, same phylogroup            <-- default
+#   ~20-30    cross-phylogroup / very divergent core
+SNP_PER_KB=10.0
+
+# Structural indels (>=50 bp): the accessory genome.
+# Numerically dominated by IS elements (~0.7-2.5 kb); the long tail is
+# prophages / genomic islands (~10-50 kb). MAX kept modest so a flat sampler
+# stays IS-dominated -- raise MAX toward 50000 if you want big islands.
+INDEL_PER_MB=15
+INDEL_MIN=50
+INDEL_MAX=15000
+
+# ---------------------------------------------------------------------------
+# Duplications: rare in E. coli. Tandem / IS-mediated; rrn operon copies.
+DUP_PER_MB=0.2
+DUP_MIN=500
+DUP_MAX=5000
+DUP_MAX_COPIES=2
+
+# ---------------------------------------------------------------------------
+# Inversions: real but infrequent. Large chromosomal inversions, often
+# symmetric about the origin/terminus, rrn-recombination mediated.
+INV_PER_MB=0.1
+INV_MIN=100
+INV_MAX=2000
+
+# ---------------------------------------------------------------------------
+# Not modeled for a single circular chromosome -> 0.
+TRA_PER_MB=0
+TRA_MIN=0
+TRA_MAX=0
+
+INVDEL_PER_MB=0
+INVDEL_MIN=100
+INVDEL_MAX=2000
+INVDUP_PER_MB=0
+INVDUP_MIN=100
+INVDUP_MAX=2000
+
+# Haploid -> a single haplotype, so there is no het/hom split;
+# every variant is present at full frequency. HOM_RATIO=1.0 reflects this.
+HOM_RATIO=1.0
+N_HAPLOID=1
+
+# Sequencing (platform choice, not organism-specific). HiFi long reads.
+DEPTH=40
+READ_MEAN_LEN=13000
+READ_SD_LEN=4000
+READ_IDENTITY=99.5,100,0.5
+MINIMAP_PRESET=map-hifi

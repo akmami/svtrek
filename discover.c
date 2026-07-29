@@ -280,7 +280,7 @@ int parse_gfa(const char* file_path, segment **segments, int *segment_size, map3
             strcpy(temp_segments[temp_segment_size].seq, token);
             
             temp_segments[temp_segment_size].rank = 1;
-            temp_segments[temp_segment_size].start = -1;
+            temp_segments[temp_segment_size].start = -1; 
             temp_segments[temp_segment_size].end = seq_len;
             temp_segments[temp_segment_size].next = NULL;
             
@@ -350,7 +350,6 @@ int parse_gfa(const char* file_path, segment **segments, int *segment_size, map3
                 segment1->next = segment2;
             } else if (segment1->rank == 0 && segment2->rank) {
                 segment2->start = 0;
-                segment2->end = strlen(segment2->seq);
             }
         }
     }
@@ -358,7 +357,7 @@ int parse_gfa(const char* file_path, segment **segments, int *segment_size, map3
     io_close(file, &line);
 
     for (int i = 0; i < temp_segment_size; i++) {
-        if (temp_segments[i].rank == 1 && temp_segments[i].start == 0 && temp_segments[i].next == NULL) {
+        if (temp_segments[i].rank == 1 && temp_segments[i].start == 0) {
             int path_length = 0;
 
             segment *current_segment = temp_segments + i;

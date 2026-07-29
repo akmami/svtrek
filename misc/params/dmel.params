@@ -1,0 +1,42 @@
+# dmel.params -- Drosophila melanogaster (~135 Mb) approximate profile.
+# Fly strains are far more polymorphic than human (SNP ~1/150-1/250 bp) and
+# genome/SV sizes are more compact. 
+
+# high SNP density between strains (~1 per 200 bp -> 5 per kb)
+SNP_PER_KB=5.0
+
+# SV insertions/deletions: denser but smaller than human
+INDEL_PER_MB=30
+INDEL_MIN=50
+INDEL_MAX=5000
+
+# duplications
+DUP_PER_MB=1.0
+DUP_MIN=200
+DUP_MAX=8000
+DUP_MAX_COPIES=3
+
+# inversions (fly genomes carry many)
+INV_PER_MB=0.3
+INV_MIN=200
+INV_MAX=10000
+
+TRA_PER_MB=0
+TRA_MIN=1000
+TRA_MAX=3000
+
+INVDEL_PER_MB=0
+INVDEL_MIN=100
+INVDEL_MAX=2000
+INVDUP_PER_MB=0
+INVDUP_MIN=100
+INVDUP_MAX=2000
+
+HOM_RATIO=0.5
+N_HAPLOID=1
+
+DEPTH=40
+READ_MEAN_LEN=13000
+READ_SD_LEN=4000
+READ_IDENTITY=99.5,100,0.5
+MINIMAP_PRESET=map-hifi

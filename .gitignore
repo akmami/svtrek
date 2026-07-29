@@ -7,3 +7,6 @@
 
 # svtrek
 svtrek
+
+misc/sim_out
+misc/slurm.*

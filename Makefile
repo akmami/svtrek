@@ -11,18 +11,20 @@ GXX := gcc
 CXXFLAGS = -Wall -Wextra -O3
 TIME := /usr/bin/time -v
 
-# object files that need lcptools
+# object files that need htslib and abPOA
 HTSLIB_CXXFLAGS := -I$(CURRENT_DIR)/htslib/include
 HTSLIB_LDFLAGS := -L$(CURRENT_DIR)/htslib/lib -lhts -Wl,-rpath,$(CURRENT_DIR)/htslib/lib -pthread -lz
+ABPOA_CXXFLAGS := -I$(CURRENT_DIR)/abPOA/include
+ABPOA_LDFLAGS := $(CURRENT_DIR)/abPOA/lib/libabpoa.a -lm
 
 $(TARGET): $(OBJS)
-	$(GXX) $(CXXFLAGS) -o $@ $^ $(HTSLIB_LDFLAGS)
+	$(GXX) $(CXXFLAGS) -o $@ $^ $(HTSLIB_LDFLAGS) $(ABPOA_LDFLAGS)
 	rm *.o
 
 %.o: %.c
-	$(GXX) $(CXXFLAGS) $(HTSLIB_CXXFLAGS) -c $< -o $@
+	$(GXX) $(CXXFLAGS) $(HTSLIB_CXXFLAGS) $(ABPOA_CXXFLAGS) -c $< -o $@
 
-install:
+install: clean
 	@echo "Installing htslib"
 	cd htslib && \
 	autoreconf -i && \
@@ -31,7 +33,6 @@ install:
 	make prefix=$(CURRENT_DIR)/htslib install && \
 	cd ../abPOA && \
 	make
-
 
 clean:
 	rm -rf *.o svtrek
