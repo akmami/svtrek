@@ -27,7 +27,7 @@
 #define __WIDER_INTERVAL           20000
 #define __MEDIAN_INTERVAL          10000
 #define __NARROW_INTERVAL          2000
-#define __CONSENSUS_INTERVAL_RANGE 500
+#define __CONSENSUS_INTERVAL_RANGE 150   // max bp a breakpoint may be relocated in refinement (CLI: --consensus-interval-range)
 #define __CONSENSUS_INTERVAL       5
 #define __CONSENSUS_MIN_COUNT      3
 #define __SV_MIN_LENGTH            50

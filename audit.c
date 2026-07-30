@@ -10,6 +10,16 @@ sv_type_t parse_sv_type(const char *sv_str) {
     return SV_UNKNOWN;
 }
 
+inline char * sv_to_str(sv_type_t type) {
+    if (type == SV_INS) return "SV_INS";
+    else if (type == SV_DEL) return "SV_DEL";
+    else if (type == SV_INV) return "SV_INV";
+    else if (type == SV_DUP) return "SV_DUP";
+    else if (type == SV_TRA) return "SV_TRA";
+    else if (type == SV_BND) return "SV_BND";
+    else return "UNKNOWN";
+}
+
 void line_queue_init(line_queue *queue, int capacity) {
     queue->lines = (char **)malloc(capacity * sizeof(char *));
     queue->size = 0;
@@ -97,25 +107,10 @@ void thread_func(void *_params) {
         info = strtok_r(NULL, "\t", &saveptr); // get INFO alleles
         
         int chrom_index;
-        uint32_t pos, end;
+        uint32_t pos, end = 0;
         sv_type_t sv_type_enum = SV_UNKNOWN;
 
-        // 1. Parse CHROM
-        if (strncmp(chrom, "chr", 3) == 0) {
-            chrom_index = atoi(chrom + 3);  // Skip "chr"
-        } else {
-            chrom_index = atoi(chrom);
-        }
-
-        // 2. Parse POS
-        pos = strtol(index, NULL, 10);
-        if (pos == 0 && index[0] != '0') { // Check for conversion error
-            fprintf(stderr, "[ERROR] Conversion error to pos %s\n", index);
-            free(line);
-            continue;
-        }
-
-        // 3. Parse SVTYPE=
+        // Verify SV type first
         char *sv_start = strstr(info, "SVTYPE=");
         if (sv_start) {
             sv_start += 7; // move past "SVTYPE="
@@ -132,16 +127,40 @@ void thread_func(void *_params) {
             sv_buf[len] = '\0';
 
             sv_type_enum = parse_sv_type(sv_buf);
-        } else {
-            if (seq_len == 1 && __SV_MIN_LENGTH < max_alt_len) {
-                sv_type_enum = SV_INS;
-            } else if (__SV_MIN_LENGTH < seq_len && min_alt_len == 1) {
-                sv_type_enum = SV_DEL;
-            } else {
-                sv_type_enum = SV_UNKNOWN;
-                free(line);
-                continue;
+        } else if (seq_len == 1 && __SV_MIN_LENGTH < max_alt_len) {
+            sv_type_enum = SV_INS;
+        } else if (__SV_MIN_LENGTH < seq_len && min_alt_len == 1) {
+            sv_type_enum = SV_DEL;
+        }
+
+        // Only INS/DEL/INV have implemented so far
+        if (sv_type_enum != SV_INS && sv_type_enum != SV_DEL && sv_type_enum != SV_INV) {
+#ifdef DEBUG
+            if (sv_type_enum != SV_UNKNOWN) {
+                fprintf(stderr, "Skipping unsupported SV type %s at %s:%s\n", sv_to_str(sv_type_enum), chrom, index);
             }
+#endif
+            free(line);
+            continue;
+        }
+
+        // resolve CHROM name to a BAM target id (tid).
+        chrom_index = sam_hdr_name2tid(targs->hargs.bam_hdr, chrom);
+        if (chrom_index < 0) {
+            fprintf(stderr, "VCF: contig '%s' not found in BAM header, skipping\n", chrom);
+            free(line);
+            continue;
+        }
+
+        // parse POS
+        pos = strtol(index, NULL, 10);
+        if (pos == 0 && index[0] != '0') { // check for conversion error
+            fprintf(stderr, "[ERROR] Conversion error to pos %s\n", index);
+#ifdef DEBUG
+            fprintf(stderr, "Variant %s -- %d, %u %u %s filtered out because of POS.\n", chrom, chrom_index, pos, end, sv_to_str(sv_type_enum));
+#endif
+            free(line);
+            continue;
         }
 
         // 4. Parse END=
@@ -161,6 +180,9 @@ void thread_func(void *_params) {
             end_buf[len] = '\0';
             end = strtol(end_buf, NULL, 10);
             if (end == 0 && end_buf[0] != '0') {
+#ifdef DEBUG
+                fprintf(stderr, "[FAIL] Variant %s, begin: %u, end: %u, %s filtered out because of END.\n", chrom, pos, end, sv_to_str(sv_type_enum));
+#endif
                 free(line);
                 continue;
             }
@@ -170,10 +192,17 @@ void thread_func(void *_params) {
 
         if (sv_type_enum == SV_DEL || sv_type_enum == SV_INV) {
             if (end - pos < __SV_MIN_LENGTH) {
+#ifdef DEBUG
+                fprintf(stderr, "[FAIL] Variant %s, begin: %u, end: %u, %s filtered out because of SV length.\n", chrom, pos, end, sv_to_str(sv_type_enum));
+#endif
                 free(line);
                 continue;
             }
         }
+
+#ifdef DEBUG
+        fprintf(stderr, "[INFO] Processing %s, begin: %u, end: %u, %s\n", chrom, pos, end, sv_to_str(sv_type_enum));
+#endif
 
         switch (sv_type_enum) {
         case SV_INS:
@@ -266,7 +295,9 @@ void thread_func(void *_params) {
             }
             break;
         default:
-            fprintf(stderr, "[ERROR] Unkown type.\n");
+#ifdef DEBUG
+            fprintf(stderr, "[FAIL] Variant %s, begin: %u, end: %u, %s Unkown type.\n", chrom, pos, end, sv_to_str(sv_type_enum));
+#endif
             break;
         }
         
@@ -374,8 +405,14 @@ int process_vcf(audt_args *params) {
 
     fclose(file);
 
+    // Set the exit flag and wake workers while holding queue_mutex. Workers
+    // read exit_signal under queue_mutex inside line_queue_pop(); setting it
+    // without the lock risks a lost wakeup (a worker checks exit_signal == 0,
+    // then blocks in pthread_cond_wait after this broadcast has already fired).
+    pthread_mutex_lock(&queue_mutex);
     exit_signal = 1;
     pthread_cond_broadcast(&cond_not_empty);
+    pthread_mutex_unlock(&queue_mutex);
     tpool_wait(tm);
     tpool_destroy(tm);
     pthread_mutex_destroy(&queue_mutex);
@@ -390,7 +427,6 @@ int process_vcf(audt_args *params) {
 
     return 0;
 }
-
 
 int audit(int argc, char *argv[]) {
 

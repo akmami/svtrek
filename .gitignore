@@ -13,3 +13,6 @@ deps/htslib/
 
 misc/sim_out
 misc/slurm.*
+
+data/*.fasta
+data/*.fai

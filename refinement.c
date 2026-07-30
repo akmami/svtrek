@@ -38,8 +38,10 @@ int consensus(int *arr, int size, int consensus_min_count, int consensus_interva
  * within `consensus_interval` of each other. Only clusters whose anchor is
  * within `consensus_interval_range` of `pos` and that reach at least
  * `consensus_min_count` supporting reads are considered. Among the eligible
- * clusters we prefer the one with the most support, breaking ties by
- * closeness to `pos`. Returns -1 when nothing qualifies.
+ * clusters we prefer the one CLOSEST to `pos`, breaking ties by higher
+ * support -- this keeps refinement anchored to the annotated location
+ * instead of snapping onto a stronger but unrelated neighbouring variant.
+ * Returns -1 when nothing qualifies.
  *
  * NOTE: this replaces an earlier version that relied on two buggy
  * lower_bound/upper_bound helpers (upper_bound returned index 0 for almost
@@ -54,14 +56,12 @@ int consensus_pos(int *locations, int size, int pos, int consensus_min_count, in
     quicksort(locations, 0, size - 1);
 
     int best_candidate = -1;
-    int best_count = consensus_min_count - 1;   /* must be exceeded to qualify */
     int best_distance = 0x7fffffff;
+    int best_count = 0;
 
     for (int i = 0; i < size; i++) {
-        /* Only consider clusters anchored near the imprecise position. */
-        if (abs(pos - locations[i]) >= consensus_interval_range)
-            continue;
-
+        /* Grow a cluster of locations within consensus_interval of one
+         * another, anchored at locations[i] (array is sorted). */
         int count = 1;
         int64_t total = locations[i];
         for (int j = i + 1; j < size && locations[j] <= locations[i] + consensus_interval; j++) {
@@ -69,48 +69,29 @@ int consensus_pos(int *locations, int size, int pos, int consensus_min_count, in
             total += locations[j];
         }
 
-        int candidate = (int)((total + count / 2) / count);
-        int distance = abs(pos - candidate);
-
         if (count < consensus_min_count)
             continue;
 
-        if (count > best_count || (count == best_count && distance < best_distance)) {
+        int candidate = (int)((total + count / 2) / count);
+        int distance = abs(pos - candidate);
+
+        /* Reject clusters whose refined position is farther than the allowed
+         * relocation window from the imprecise (annotated) position. */
+        if (distance >= consensus_interval_range)
+            continue;
+
+        /* Stick to the exact location when possible: prefer the cluster
+         * CLOSEST to the annotated position, using support only to break
+         * ties. This stops refinement from snapping onto a stronger but
+         * unrelated neighbouring variant that merely falls inside the window. */
+        if (distance < best_distance || (distance == best_distance && count > best_count)) {
+            best_distance = distance;
             best_count = count;
             best_candidate = candidate;
-            best_distance = distance;
         }
     }
 
     return best_candidate;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                           */
-/* ------------------------------------------------------------------ */
-
-/*
- * Resolve a 1-based chromosome index to a BAM target id (tid).
- *
- * The VCF only carries a numeric chromosome index, but the BAM target order
- * is not guaranteed to be "chrom - 1". We try the common contig spellings
- * ("chrN" then "N") and fall back to the previous chrom-1 behaviour so we
- * never regress on headers that happen to be ordered numerically.
- */
-static int resolve_tid(bam_hdr_t *hdr, int chrom) {
-    if (hdr != NULL) {
-        char name[32];
-        int tid;
-
-        snprintf(name, sizeof(name), "chr%d", chrom);
-        tid = sam_hdr_name2tid(hdr, name);
-        if (tid >= 0) return tid;
-
-        snprintf(name, sizeof(name), "%d", chrom);
-        tid = sam_hdr_name2tid(hdr, name);
-        if (tid >= 0) return tid;
-    }
-    return chrom - 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -128,7 +109,7 @@ int refine_start(sv_type_t sv_type, int chrom, interval inter, uint32_t imprecis
     }
 
     bam1_t *aln = bam_init1();
-    int tid = resolve_tid(params->hargs.bam_hdr, chrom);
+    int tid = chrom;
     hts_itr_t *iter = sam_itr_queryi(params->hargs.bam_file_index, tid, inter.start-1, inter.end-1);
 
     if (iter) {
@@ -206,7 +187,7 @@ int refine_end(sv_type_t sv_type, int chrom, interval inter, uint32_t imprecise_
     }
 
     bam1_t *aln = bam_init1();
-    int tid = resolve_tid(params->hargs.bam_hdr, chrom);
+    int tid = chrom;
     hts_itr_t *iter = sam_itr_queryi(params->hargs.bam_file_index, tid, inter.start-1, inter.end-1);
 
     if (iter) {
@@ -286,7 +267,7 @@ int refine_point(sv_type_t sv_type, int chrom, interval inter, uint32_t imprecis
 
     bam1_t *aln = bam_init1();
 
-    int tid = resolve_tid(params->hargs.bam_hdr, chrom);
+    int tid = chrom;
     hts_itr_t *iter = sam_itr_queryi(params->hargs.bam_file_index, tid, inter.start-1, inter.end-1);
     if (iter) {
         while (sam_itr_next(params->hargs.fp_in, iter, aln) > 0) {
@@ -343,7 +324,7 @@ int refine_ins(int chrom, interval inter, uint32_t imprecise_pos, t_arg *params)
 
     bam1_t *aln = bam_init1();
 
-    int tid = resolve_tid(params->hargs.bam_hdr, chrom);
+    int tid = chrom;
     hts_itr_t *iter = sam_itr_queryi(params->hargs.bam_file_index, tid, inter.start-1, inter.end-1);
     if (iter) {
         while (sam_itr_next(params->hargs.fp_in, iter, aln) > 0) {
@@ -410,7 +391,7 @@ static int collect_insertion_seqs(int chrom, int cons_pos, int tol, t_arg *param
     int lo = cons_pos - tol; if (lo < 1) lo = 1;
     int hi = cons_pos + tol;
 
-    int tid = resolve_tid(params->hargs.bam_hdr, chrom);
+    int tid = chrom;
     bam1_t *aln = bam_init1();
     hts_itr_t *iter = sam_itr_queryi(params->hargs.bam_file_index, tid, lo - 1, hi);
     if (iter) {
@@ -475,7 +456,7 @@ static int collect_spanning_seqs(int chrom, int lo, int hi, int flank, t_arg *pa
     }
 
     int cap_seq = (win_hi - win_lo) + 16;
-    int tid = resolve_tid(params->hargs.bam_hdr, chrom);
+    int tid = chrom;
     bam1_t *aln = bam_init1();
     hts_itr_t *iter = sam_itr_queryi(params->hargs.bam_file_index, tid, win_lo, win_hi);
     if (iter) {

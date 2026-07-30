@@ -12,6 +12,10 @@ GXX := gcc
 CXXFLAGS = -Wall -Wextra -O3 -pthread
 TIME := /usr/bin/time -v
 
+ifdef DEBUG
+    CXXFLAGS += -DDEBUG
+endif
+
 # abPOA
 ABPOA_DIR      := $(DEPS_DIR)/abPOA
 ABPOA_CXXFLAGS := -I$(ABPOA_DIR)/include
