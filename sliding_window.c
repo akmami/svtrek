@@ -5,9 +5,9 @@
 #include "refinement.h"
 
 
-int refine_ins_disc(int chrom, interval inter, t_arg *params, int windowSize, int slideSize) {
-    int bestCandidateOverall = -1; 
-    int maxSupportOverall = 0;
+svtrek_index refine_ins_disc(int chrom, interval inter, t_arg *params, svtrek_index windowSize, svtrek_index slideSize) {
+    svtrek_index bestCandidateOverall = 0; 
+    size_t maxSupportOverall = 0;
 
     for (uint32_t sub_start = inter.start; sub_start < inter.end; sub_start += windowSize) {
         uint32_t sub_end = sub_start + windowSize;
@@ -15,9 +15,9 @@ int refine_ins_disc(int chrom, interval inter, t_arg *params, int windowSize, in
             sub_end = inter.end;  
 
         
-        int capacity = 100; // dynamic but initialized with 100
-        int size = 0;
-        int *locations = (int *)malloc(sizeof(int) * capacity);
+        size_t capacity = 100; // dynamic but initialized with 100
+        size_t size = 0;
+        svtrek_index *locations = (svtrek_index *)malloc(sizeof(svtrek_index) * capacity);
         if (locations == NULL) {
             fprintf(stderr, "[ERROR] Couldn't allocate array for positions in sub-window [%d, %d].\n", sub_start, sub_end);
             return -1;
@@ -33,8 +33,8 @@ int refine_ins_disc(int chrom, interval inter, t_arg *params, int windowSize, in
                     if (bam_cigar_op(cigar[i]) == __CIGAR_INSERTION &&
                         bam_cigar_oplen(cigar[i]) >= __SV_MIN_LENGTH) {
                         if (size == capacity) {
-                            capacity = (int)(capacity * 1.5);
-                            int *temp = (int *)realloc(locations, sizeof(int) * capacity);
+                            capacity = capacity * 1.5;
+                            svtrek_index *temp = (svtrek_index *)realloc(locations, sizeof(svtrek_index) * capacity);
                             if (temp == NULL) {
                                 fprintf(stderr, "[ERROR] Couldn't reallocate locations array.\n");
                                 free(locations);
@@ -64,26 +64,26 @@ int refine_ins_disc(int chrom, interval inter, t_arg *params, int windowSize, in
 
         quicksort(locations, 0, size - 1);
 
-        int bestCandidate = -1;
-        int maxSupport = 0;
+        svtrek_index bestCandidate = 0;
+        svtrek_index maxSupport = 0;
         
-        for (int i = 0; i < size; i += slideSize) {
-            int end = i;
+        for (size_t i = 0; i < size; i += slideSize) {
+            size_t end = i;
             while (end < size && (locations[end] - locations[i]) <= windowSize) {
                 end++;
             }
-            int support = end - i; 
+            size_t support = end - i; 
             if (support >= params->consensus_min_count && support > maxSupport) {
                 maxSupport = support;
-                int sum = 0;
-                for (int j = i; j < end; j++) {
+                size_t sum = 0;
+                for (size_t j = i; j < end; j++) {
                     sum += locations[j];
                 }
                 bestCandidate = (sum + support / 2) / support; 
             }
         }
 
-        if (bestCandidate != -1) {
+        if (bestCandidate != 0) {
             printf("INS Discovery in window [%d, %d] at position %d with support %d\n", sub_start, sub_end, bestCandidate, maxSupport);
             if (maxSupport > maxSupportOverall) {
                 maxSupportOverall = maxSupport;

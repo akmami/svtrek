@@ -22,7 +22,7 @@ static void init_nt4(void) {
 // code -> base for the consensus (0..3 => ACGT, anything else => N).
 static const char code2base[5] = { 'A', 'C', 'G', 'T', 'N' };
 
-int run_msa(char **seqs, int *lens, int n_seqs, sv_consensus *out) {
+int run_msa(char **seqs, size_t *lens, size_t n_seqs, sv_consensus *out) {
     out->seq = NULL;
     out->len = 0;
     out->support = 0;
@@ -51,14 +51,14 @@ int run_msa(char **seqs, int *lens, int n_seqs, sv_consensus *out) {
         abpoa_free_para(abpt);
         return -1;
     }
-    for (int i = 0; i < n_seqs; i++) {
+    for (size_t i = 0; i < n_seqs; i++) {
         bseqs[i] = (uint8_t *)malloc(lens[i] > 0 ? lens[i] : 1);
-        for (int j = 0; j < lens[i]; j++)
+        for (size_t j = 0; j < lens[i]; j++)
             bseqs[i][j] = nt4_table[(unsigned char)seqs[i][j]];
     }
 
     // No per-base quality weights (NULL), no output stream (NULL).
-    abpoa_msa(ab, abpt, n_seqs, NULL, lens, bseqs, NULL, NULL);
+    abpoa_msa(ab, abpt, n_seqs, NULL, (int *)lens, bseqs, NULL, NULL);
 
     abpoa_cons_t *abc = ab->abc;
     int rc = -1;
@@ -78,7 +78,7 @@ int run_msa(char **seqs, int *lens, int n_seqs, sv_consensus *out) {
         }
     }
 
-    for (int i = 0; i < n_seqs; i++) free(bseqs[i]);
+    for (size_t i = 0; i < n_seqs; i++) free(bseqs[i]);
     free(bseqs);
     abpoa_free(ab);
     abpoa_free_para(abpt);

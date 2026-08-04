@@ -8,6 +8,6 @@
 #include <stdio.h>
 #include <htslib/sam.h>
 
-int refine_ins_disc(int chrom, interval inter, t_arg *params, int window_size, int slide_size);
+svtrek_index refine_ins_disc(int chrom, interval inter, t_arg *params, svtrek_index window_size, svtrek_index slide_size);
 
 #endif // SLIDING_WINDOW_H

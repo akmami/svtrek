@@ -388,14 +388,12 @@ int parse_fq(const char* file_path, gaf_breakpoint* gaf_breakpoints, mapstr_t *h
     kseq_t *seq = kseq_init(in);
 
     while (kseq_read(seq) >= 0) {
-        seq->name.s;
-        seq->seq.s;
-
         khint64_t k = mapstr_get(h2, seq->name.s);
         if (k == kh_end(h2))
             continue;
         
-        gaf_breakpoint* aln = gaf_breakpoints + kh_val(h2, k);
+        // gaf_breakpoint* aln = gaf_breakpoints + kh_val(h2, k);
+        (void)(gaf_breakpoints + kh_val(h2, k));
         
         // TODO: get substring from the read and prepare for MSA
     }

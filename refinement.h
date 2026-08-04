@@ -2,6 +2,7 @@
 #define __REFINEMENT_H__
 
 #include "params.h"
+#include "utils.h"
 #include "msa.h"
 #include <stdlib.h>
 
@@ -61,6 +62,5 @@ void insertion(int chrom, interval begin, uint32_t pos, t_arg *params, uint32_t 
  */
 void inversion(int chrom, interval begin, interval end, interval sv_inter, t_arg *params, interval *res_inter);
 
-void quicksort(int *array, int low, int high);
 
 #endif

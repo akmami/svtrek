@@ -111,7 +111,7 @@ void thread_func(void *_params) {
             continue;
         }
 
-        uint32_t pos = strtol(pos_str, NULL, 10);
+        svtrek_index pos = strtol(pos_str, NULL, 10);
         if (pos == 0 && pos_str[0] != '0') { // check for conversion error
             fprintf(stderr, "[ERROR] Variant %s, begin: %s filtered out because of PARSE-POS error.\n", contig, pos_str);
             free(line);
@@ -122,7 +122,7 @@ void thread_func(void *_params) {
 
         // column 4: REF
         char *ref = strtok_r(NULL, "\t", &saveptr);
-        int ref_len = strlen(ref);
+        svtrek_index ref_len = strlen(ref);
 
         // column 5: ALT (comma-separated); track shortest and longest allele
         char *alt = strtok_r(NULL, "\t", &saveptr);
@@ -146,7 +146,7 @@ void thread_func(void *_params) {
         char *info = strtok_r(NULL, "\t", &saveptr); // column 8: INFO
 
         // END position: read from INFO "END=", otherwise POS + REF length
-        uint32_t end;
+        svtrek_index end;
         char end_buf[32];
         if (info_field_value(info, "END=", end_buf, sizeof(end_buf))) {
             end = strtol(end_buf, NULL, 10);
@@ -190,9 +190,9 @@ void thread_func(void *_params) {
         switch (sv_type) {
         case SV_INS:
             {
-                uint32_t begin_start = pos > (uint32_t)targs->median_interval ? pos - targs->median_interval : 1;
+                svtrek_index begin_start = pos > targs->median_interval ? pos - targs->median_interval : 1;
                 interval begin = {begin_start, pos + targs->median_interval};
-                uint32_t result;
+                svtrek_index result;
                 sv_consensus cons;
                 insertion(contig_index, begin, pos, targs, &result, &cons);
 
@@ -203,7 +203,7 @@ void thread_func(void *_params) {
                     printf("(INS) contig: %d, org pos: %u, ref pos: %u, diff: %d", contig_index, pos, result, result - pos);
                 }
                 if (cons.seq != NULL) {
-                    printf(", cons_len: %d, support: %d, cons: %.60s%s\n", cons.len, cons.support, cons.seq, cons.len > 60 ? "..." : "");
+                    printf(", cons_len: %ld, support: %ld, cons: %.60s%s\n", cons.len, cons.support, cons.seq, cons.len > 60 ? "..." : "");
                 } else {
                     printf(", cons_len: NA\n");
                 }
@@ -214,8 +214,8 @@ void thread_func(void *_params) {
             break;
         case SV_DEL:
             {
-                uint32_t del_begin_start = pos > (uint32_t)targs->wider_interval ? pos - targs->wider_interval : 1;
-                uint32_t del_end_start = end > (uint32_t)targs->narrow_interval ? end - targs->narrow_interval : 1;
+                svtrek_index del_begin_start = pos > targs->wider_interval ? pos - targs->wider_interval : 1;
+                svtrek_index del_end_start = end > targs->narrow_interval ? end - targs->narrow_interval : 1;
                 interval del_begin = {del_begin_start, pos + targs->narrow_interval};
                 interval del_end = {del_end_start, end + targs->narrow_interval};
                 interval sv_inter = {pos, end};
@@ -230,7 +230,7 @@ void thread_func(void *_params) {
 
                 if (result.start == 0xFFFFFFFF) printf("diff pos: NA, "); else printf("diff pos: %d, ", result.start - pos);
                 if (result.end == 0xFFFFFFFF) printf("diff end: NA"); else printf("diff end: %d", result.end - end);
-                if (cons.seq != NULL) printf(", cons_len: %d, support: %d\n", cons.len, cons.support); else printf(", cons_len: NA\n");
+                if (cons.seq != NULL) printf(", cons_len: %ld, support: %ld\n", cons.len, cons.support); else printf(", cons_len: NA\n");
                 pthread_mutex_unlock(targs->out_err_mutex);
 
                 sv_consensus_free(&cons);
@@ -238,8 +238,8 @@ void thread_func(void *_params) {
             break;
         case SV_INV:
             {
-                uint32_t inv_begin_start = pos > (uint32_t)targs->wider_interval ? pos - targs->wider_interval : 1;
-                uint32_t inv_end_start = end > (uint32_t)targs->wider_interval ? end - targs->wider_interval : 1;
+                svtrek_index inv_begin_start = pos > (uint32_t)targs->wider_interval ? pos - targs->wider_interval : 1;
+                svtrek_index inv_end_start = end > (uint32_t)targs->wider_interval ? end - targs->wider_interval : 1;
                 interval inv_begin = {inv_begin_start, pos + targs->wider_interval};
                 interval inv_end = {inv_end_start, end + targs->wider_interval};
                 interval sv_inter = {pos, end};

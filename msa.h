@@ -1,6 +1,8 @@
 #ifndef __MSA_H__
 #define __MSA_H__
 
+#include <stddef.h>
+
 /**
  * @brief Consensus sequence produced by a multiple sequence alignment (abPOA).
  *
@@ -9,9 +11,9 @@
  * `support` is the number of input sequences that were fed into the MSA.
  */
 typedef struct _sv_consensus {
-    char *seq;      /**< Consensus sequence (malloc'd, null-terminated) or NULL. */
-    int   len;      /**< Length of the consensus sequence (0 if none). */
-    int   support;  /**< Number of reads/sequences used to build the consensus. */
+    char *seq;       /**< Consensus sequence (malloc'd, null-terminated) or NULL. */
+    size_t len;      /**< Length of the consensus sequence (0 if none). */
+    size_t support;  /**< Number of reads/sequences used to build the consensus. */
 } sv_consensus;
 
 /**
@@ -29,7 +31,7 @@ typedef struct _sv_consensus {
  *
  * @return 0 on success (a consensus was produced), -1 otherwise.
  */
-int run_msa(char **seqs, int *lens, int n_seqs, sv_consensus *out);
+int run_msa(char **seqs, size_t *lens, size_t n_seqs, sv_consensus *out);
 
 /**
  * @brief Release the memory held by an sv_consensus produced by run_msa.

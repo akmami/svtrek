@@ -30,7 +30,7 @@
 #define __CONSENSUS_INTERVAL_RANGE 150   // max bp a breakpoint may be relocated in refinement (CLI: --consensus-interval-range)
 #define __CONSENSUS_INTERVAL       5
 #define __CONSENSUS_MIN_COUNT      3
-#define __SV_MIN_LENGTH            50
+#define __SV_MIN_LENGTH            10
 //#define CONSENSUS_COUNT_PERC     0.3
 
 #define __THREAD_NUMBER           4
@@ -40,6 +40,7 @@
 #define MAX_CIGAR 131072
 #define MAX_SEQ 1048576
 
+typedef uint32_t svtrek_index;
 
 typedef enum _mode {
     MODE_DISC,
@@ -55,12 +56,12 @@ typedef struct _audt_args {
     int verbose;
     int tload_factor;
     // program arguments
-    int wider_interval;
-    int median_interval;
-    int narrow_interval;
-    int consensus_interval_range;
-    int consensus_interval;
-    int consensus_min_count;
+    svtrek_index wider_interval;
+    svtrek_index median_interval;
+    svtrek_index narrow_interval;
+    svtrek_index consensus_interval_range;
+    svtrek_index consensus_interval;
+    size_t consensus_min_count;
     program_mode mode;
 } audt_args;
 
@@ -79,12 +80,12 @@ typedef struct _htslib_params {
 } htslib_params;
 
 typedef struct _t_arg {
-    int wider_interval;
-    int median_interval;
-    int narrow_interval;
-    int consensus_interval_range;
-    int consensus_interval;
-    int consensus_min_count;
+    svtrek_index wider_interval;
+    svtrek_index median_interval;
+    svtrek_index narrow_interval;
+    svtrek_index consensus_interval_range;
+    svtrek_index consensus_interval;
+    size_t consensus_min_count;
     htslib_params hargs;
     line_queue *queue;
     pthread_mutex_t *queue_mutex;
@@ -104,9 +105,9 @@ typedef struct _disc_args {
     int verbose;
     int tload_factor;
     // program arguments
-    int consensus_interval_range;
-    int consensus_interval;
-    int consensus_min_count;
+    svtrek_index consensus_interval_range;
+    svtrek_index consensus_interval;
+    svtrek_index consensus_min_count;
     program_mode mode;
 } disc_args;
 
@@ -121,8 +122,8 @@ typedef enum {
 } sv_type_t;
 
 typedef struct _interval {
-    uint32_t start;
-    uint32_t end;
+    svtrek_index start;
+    svtrek_index end;
 } interval;
 
 typedef struct _alignment {

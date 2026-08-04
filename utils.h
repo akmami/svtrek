@@ -21,13 +21,13 @@
 		}
 
 /**
- * @brief Quick sort for int.
+ * @brief Quick sort for svtrek_index.
  * 
  * @param array The array to be sorted
  * @param low   The left most element's index
  * @param high  The right most element's index
  */
-void quicksort(int *array, int low, int high);
+void quicksort(svtrek_index *array, int low, int high);
 
 /**
  * @brief Reverse the given array.
