@@ -2,6 +2,10 @@
 #include "msa.h"
 #include <htslib/sam.h>
 
+
+#define abs_int(a) (a < 0 ? -(a) : a)
+
+
 /* ------------------------------------------------------------------ */
 /*  Consensus of a set of candidate breakpoint locations              */
 /* ------------------------------------------------------------------ */
@@ -73,7 +77,7 @@ int consensus_pos(int *locations, int size, int pos, int consensus_min_count, in
             continue;
 
         int candidate = (int)((total + count / 2) / count);
-        int distance = abs(pos - candidate);
+        int distance = abs_int(pos - candidate);
 
         /* Reject clusters whose refined position is farther than the allowed
          * relocation window from the imprecise (annotated) position. */
@@ -405,7 +409,7 @@ static int collect_insertion_seqs(int chrom, int cons_pos, int tol, t_arg *param
                 int op  = bam_cigar_op(cigar[i]);
                 int len = bam_cigar_oplen(cigar[i]);
 
-                if (op == __CIGAR_INSERTION && len >= __SV_MIN_LENGTH && abs((int)ref - cons_pos) <= tol) {
+                if (op == __CIGAR_INSERTION && len >= __SV_MIN_LENGTH && abs_int((int)ref - cons_pos) <= tol) {
                     char *s = (char *)malloc(len + 1);
                     if (s != NULL) {
                         for (int j = 0; j < len; j++)

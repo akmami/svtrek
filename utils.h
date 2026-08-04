@@ -3,8 +3,8 @@
 
 #include "params.h"
 #include <stdint.h>
+#include <string.h>
 
-#define abs(a) (a < 0 ? -(a) : a)
 
 #define validate(temp) \
 		if (!temp) { \

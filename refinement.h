@@ -5,7 +5,6 @@
 #include "msa.h"
 #include <stdlib.h>
 
-#define abs(a) (a < 0 ? -(a) : a)
 
 /**
  * @brief Processes a deletion event within a given chromosomal region.

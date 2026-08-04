@@ -19,7 +19,7 @@ DUP_MAX_COPIES=3
 # inversions (fly genomes carry many)
 INV_PER_MB=0.3
 INV_MIN=200
-INV_MAX=10000
+INV_MAX=5000
 
 TRA_PER_MB=0
 TRA_MIN=1000
