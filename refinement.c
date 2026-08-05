@@ -381,9 +381,9 @@ svtrek_index refine_ins(int chrom, interval inter, svtrek_index imprecise_pos, t
  * are the candidate ALT (inserted) sequences that feed the MSA.
  */
 static size_t collect_insertion_seqs(int chrom, svtrek_index cons_pos, svtrek_index tol, t_arg *params,
-                                     char ***seqs_out, size_t **lens_out, size_t max_seqs) {
+                                     char ***seqs_out, int **lens_out, size_t max_seqs) {
     char **seqs = (char **)malloc(sizeof(char *) * max_seqs);
-    size_t *lens = (size_t *)malloc(sizeof(size_t) * max_seqs);
+    int *lens = (int *)malloc(sizeof(int) * max_seqs);
     size_t n = 0;
 
     if (seqs == NULL || lens == NULL) {
@@ -416,7 +416,7 @@ static size_t collect_insertion_seqs(int chrom, svtrek_index cons_pos, svtrek_in
                             s[j] = seq_nt16_str[bam_seqi(qseq, qpos + j)];
                         s[len] = '\0';
                         seqs[n] = s;
-                        lens[n] = len;
+                        lens[n] = (int)len;
                         n++;
                     }
                 }
@@ -445,14 +445,14 @@ static size_t collect_insertion_seqs(int chrom, svtrek_index cons_pos, svtrek_in
  * deletion size.
  */
 static size_t collect_spanning_seqs(int chrom, svtrek_index lo, svtrek_index hi, svtrek_index flank, t_arg *params,
-                                    char ***seqs_out, size_t **lens_out, size_t max_seqs) {
+                                    char ***seqs_out, int **lens_out, size_t max_seqs) {
     svtrek_index win_lo; 
     if (lo < flank) win_lo = 0;
     else            win_lo = lo - flank;
     svtrek_index win_hi = hi + flank;
 
     char **seqs = (char **)malloc(sizeof(char *) * max_seqs);
-    size_t *lens = (size_t *)malloc(sizeof(size_t) * max_seqs);
+    int *lens = (int *)malloc(sizeof(int) * max_seqs);
     size_t n = 0;
 
     if (seqs == NULL || lens == NULL) {
@@ -507,7 +507,7 @@ static size_t collect_spanning_seqs(int chrom, svtrek_index lo, svtrek_index hi,
             if (sl > 0) {
                 s[sl] = '\0';
                 seqs[n] = s;
-                lens[n] = sl;
+                lens[n] = (int)sl;
                 n++;
             } else {
                 free(s);
@@ -804,7 +804,7 @@ void deletion(int chrom, interval begin, interval end, interval sv_inter, t_arg 
     svtrek_index hi = (e > 0) ? e : sv_inter.end;
     if (hi > lo) {
         svtrek_index flank = __SV_MIN_LENGTH * 2;   /* bases of flank on each side */
-        char **seqs = NULL; size_t *lens = NULL;
+        char **seqs = NULL; int *lens = NULL;
         size_t nseq = collect_spanning_seqs(chrom, lo, hi, flank, params, &seqs, &lens, 200);
         if (nseq >= params->consensus_min_count)
             run_msa(seqs, lens, nseq, cons);
@@ -821,7 +821,7 @@ void insertion(int chrom, interval begin, svtrek_index pos, t_arg *params, svtre
 
     /* Build a consensus of the inserted (ALT) sequences. */
     if (cp > 0) {
-        char **seqs = NULL; size_t *lens = NULL;
+        char **seqs = NULL; int *lens = NULL;
         size_t nseq = collect_insertion_seqs(chrom, cp, params->consensus_interval_range, params, &seqs, &lens, 500);
         if (nseq >= 1)
             run_msa(seqs, lens, nseq, cons);

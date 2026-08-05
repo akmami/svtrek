@@ -31,7 +31,7 @@ typedef struct _sv_consensus {
  *
  * @return 0 on success (a consensus was produced), -1 otherwise.
  */
-int run_msa(char **seqs, size_t *lens, size_t n_seqs, sv_consensus *out);
+int run_msa(char **seqs, int *lens, size_t n_seqs, sv_consensus *out);
 
 /**
  * @brief Release the memory held by an sv_consensus produced by run_msa.
