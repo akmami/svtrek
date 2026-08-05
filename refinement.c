@@ -54,7 +54,7 @@ svtrek_index consensus(svtrek_index *arr, size_t size, size_t consensus_min_coun
 svtrek_index consensus_pos(svtrek_index *locations, size_t size, svtrek_index pos, size_t consensus_min_count, svtrek_index consensus_interval, svtrek_index consensus_interval_range) {
 
     if (size < consensus_min_count) {
-        return -1;
+        return 0;
     }
 
     quicksort(locations, 0, size - 1);
@@ -323,7 +323,7 @@ svtrek_index refine_ins(int chrom, interval inter, svtrek_index imprecise_pos, t
     svtrek_index *locations = (svtrek_index *)malloc(sizeof(svtrek_index)*capacity);
     if(locations == NULL) {
         fprintf(stderr, "Couldn't allocate array for positions.\n");
-        return -1;
+        return 0;
     }
 
     bam1_t *aln = bam_init1();
@@ -334,8 +334,9 @@ svtrek_index refine_ins(int chrom, interval inter, svtrek_index imprecise_pos, t
         while (sam_itr_next(params->hargs.fp_in, iter, aln) > 0) {
             uint32_t reference_pos = aln->core.pos;
             uint32_t *cigar   = bam_get_cigar(aln);
+            uint32_t n_cigar  = aln->core.n_cigar;
 
-            for (uint32_t i = 0; i < aln->core.n_cigar; i++) {
+            for (uint32_t i = 0; i < n_cigar; i++) {
                 if (bam_cigar_op(cigar[i]) == __CIGAR_INSERTION && __SV_MIN_LENGTH <= bam_cigar_oplen(cigar[i])) {
                     if (capacity == size) {
                         capacity = capacity * 1.5;
@@ -345,7 +346,7 @@ svtrek_index refine_ins(int chrom, interval inter, svtrek_index imprecise_pos, t
                             free(locations);
                             bam_destroy1(aln);
                             sam_itr_destroy(iter);
-                            return -1;
+                            return 0;
                         }
                         locations = temp;
                     }
@@ -360,6 +361,38 @@ svtrek_index refine_ins(int chrom, interval inter, svtrek_index imprecise_pos, t
 
                 if (reference_pos > inter.end) {
                     break;
+                }
+            }
+
+            // Split-read fallback: an insertion longer than the aligner's max
+            // gap is emitted as a split read (a large terminal soft-clip plus a
+            // supplementary alignment) rather than a CIGAR I-op. Both terminal
+            // soft-clips mark the insertion breakpoint on the reference:
+            //   - a 3' (last-op) soft-clip ends the alignment at the anchor,
+            //   - a 5' (first-op) soft-clip resumes the alignment at the anchor.
+            // Recording those lets the position still be refined even when no
+            // single read carries the whole insertion as an I-op.
+            if (n_cigar > 0) {
+                svtrek_index sc_pos = 0;
+                if (bam_cigar_op(cigar[n_cigar-1]) == __CIGAR_SOFT_CLIP && __SV_MIN_LENGTH <= bam_cigar_oplen(cigar[n_cigar-1])) {
+                    sc_pos = (svtrek_index)bam_endpos(aln);   // 0-based, one past last aligned base
+                } else if (bam_cigar_op(cigar[0]) == __CIGAR_SOFT_CLIP && __SV_MIN_LENGTH <= bam_cigar_oplen(cigar[0])) {
+                    sc_pos = (svtrek_index)aln->core.pos;     // 0-based alignment start
+                }
+                if (sc_pos != 0 && inter.start <= sc_pos && sc_pos <= inter.end) {
+                    if (capacity == size) {
+                        capacity = capacity * 1.5;
+                        svtrek_index *temp = (svtrek_index *)realloc(locations, sizeof(svtrek_index)*capacity);
+                        if (temp == NULL) {
+                            fprintf(stderr, "[ERROR] Couldn't reallocate locations array.\n");
+                            free(locations);
+                            bam_destroy1(aln);
+                            sam_itr_destroy(iter);
+                            return 0;
+                        }
+                        locations = temp;
+                    }
+                    locations[size++] = sc_pos;
                 }
             }
         }

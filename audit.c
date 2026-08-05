@@ -172,8 +172,19 @@ void thread_func(void *_params) {
             sv_type = SV_DEL;
         }
 
+        if (info_field_value(info, "SVLEN=", sv_buf, sizeof(sv_buf))) {
+            int sv_len = atoi(sv_buf);
+            if (sv_len < __SV_MIN_LENGTH) {
+#ifdef DEBUG
+                fprintf(stderr, "[FAIL] Contig %s, begin: %u, end: %u, len: %d filtered out because of SV len.\n", contig, pos, end, sv_len);
+#endif
+                free(line);
+                continue;
+            }
+        }
+
         // Only INS/DEL/INV are implemented so far
-        if (sv_type != SV_INS && sv_type != SV_DEL && sv_type != SV_INV) {
+        if (sv_type != SV_INS && sv_type != SV_DEL) { // && sv_type != SV_INV) {
 #ifdef DEBUG
             if (sv_type != SV_UNKNOWN) {
                 fprintf(stderr, "[FAIL] Skipping unsupported SV type %s at %s:%s\n", sv_to_str(sv_type), contig, pos_str);
