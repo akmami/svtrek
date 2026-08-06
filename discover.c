@@ -1,22 +1,37 @@
 #include "discover.h"
+#include "akhal/gfa.h"
+#include "akhal/gaf.h"
 
-// KHASHL_MAP_INIT(SCOPE, HType, prefix, khkey_t, kh_val_t, __hash_fn, __hash_eq)
-KHASHL_MAP_INIT(KH_LOCAL, map32_t, map32, uint64_t, uint32_t, kh_hash_uint64, kh_eq_generic)
+// Read name -> breakpoint index. Keys are strdup'd (see parse_gaf) because the
+// akhal GAF reader owns/reuses the record strings, so the names must be copied
+// to remain valid as hash keys. They are freed in discover().
 KHASHL_MAP_INIT(KH_LOCAL, mapstr_t, mapstr, const char*, uint32_t, kh_hash_str, kh_eq_str)
 
 KSEQ_INIT(gzFile, gzread)
 
-int parse_nodes(const char *readName, char *readPath, uint64_t **nodes, segment *segments, map32_t *h1) {
+/**
+ * @brief Walk a GAF path string, collecting the visited node ids.
+ *
+ * Validates that every node exists in the graph and that the read maps to a
+ * single strand.
+ *
+ * @param readName Read name (for diagnostics).
+ * @param readPath GAF path string (e.g. ">1>2<3").
+ * @param nodes    Output: newly allocated array of node ids (caller frees).
+ * @param g        The graph.
+ * @return Number of nodes on success, or 0 on error.
+ */
+int parse_nodes(const char *readName, const char *readPath, uint64_t **nodes, const gfa_t *g) {
 
     uint64_t *temp_nodes = (uint64_t *)malloc(sizeof(uint64_t) * MAX_CIGAR);
+    validate(temp_nodes)
     int node_size = 0, path_index, fwd_strand_count = 0, rev_strand_count = 0;
     const char *path = readPath; uint64_t id = 0; char strand = '>';
-    
+
     while ((path_index = next_node(path, &id, &strand))) {
         path += path_index;
-        khint_t k = map32_get(h1, id);
-        if (k == kh_end(h1)) {
-            fprintf(stderr, "[ERROR] Segment %lu in read %s not found.\n", id, readName); 
+        if (gfa_idx(g, id) < 0) {
+            fprintf(stderr, "[ERROR] Segment %lu in read %s not found.\n", id, readName);
             free(temp_nodes);
             return 0;
         }
@@ -24,14 +39,7 @@ int parse_nodes(const char *readName, char *readPath, uint64_t **nodes, segment 
 
         if (strand == '>') fwd_strand_count++;
         else rev_strand_count++;
-        // Validation 1: Does node exists
-        segment *temp = segments + kh_val(h1, k);
-        if (temp->rank > 1) {
-            fprintf(stderr, "[ERROR] Read %s contains invalid ranks.\n", readName);
-            free(temp_nodes);
-            return 0;
-        }
-        // Validation 2: Does read aligned consistently to one strand
+        // Validation: does read align consistently to one strand
         if (fwd_strand_count && rev_strand_count) {
             fprintf(stderr, "[ERROR] Read %s aligned in mixed strands.\n", readName);
             free(temp_nodes);
@@ -39,129 +47,114 @@ int parse_nodes(const char *readName, char *readPath, uint64_t **nodes, segment 
         }
     }
 
+    if (node_size == 0) { free(temp_nodes); return 0; }  // don't leak on empty path
     *nodes = temp_nodes;
     return node_size;
 }
 
-int parse_gaf(const char* file_path, segment *segments, map32_t *h1, gaf_breakpoint **gaf_breakpoints, mapstr_t *h2) {
+/**
+ * @brief Read a GAF file and derive per-read breakpoints against the graph.
+ *
+ * Uses the akhal GAF reader; a segment is treated as reference iff it belongs
+ * to a path (ref_name != NULL). CIGAR handling stays svtrek-native (int-coded
+ * parse_cigar).
+ *
+ * @param file_path       Path to the GAF file.
+ * @param g               The graph.
+ * @param gaf_breakpoints Output: newly allocated breakpoint array.
+ * @param h2              Read name -> breakpoint index map (keys strdup'd here).
+ * @return Number of breakpoints, or 0 if the file could not be opened.
+ */
+int parse_gaf(const char* file_path, const gfa_t *g, gaf_breakpoint **gaf_breakpoints, mapstr_t *h2) {
 
-    size_t line_cap = MAX_LINE;
-    char *line = NULL;
-    FILE *file = io_open(file_path, &line, line_cap, "r");
-    int line_len = 0;
-    
+    gaf_reader_t *reader = gaf_open(file_path);
+    if (!reader) { *gaf_breakpoints = NULL; return -1; }   // -1 distinguishes open failure
+
     int temp_breakpoint_size = 0, temp_breakpoint_capacity = 1000000;
     gaf_breakpoint *temp_breakpoints = (gaf_breakpoint *)malloc(temp_breakpoint_capacity * sizeof(gaf_breakpoint));
     validate(temp_breakpoints)
 
-    while ((line_len = io_read(file, &line, &line_cap))) {
+    gaf_rec_t rec;
+    gaf_rec_init(&rec);
 
-        alignment aln;
-        memset(&aln, 0, sizeof(alignment));
+    while (gaf_read1(reader, &rec) == 1) {
 
-        char *saveptr, *token;
-        int field = 0;
+        // Local, mutable copies of the fields we read/rewrite.
+        const char *readName = rec.qname;
+        int readLen   = (int)rec.qlen;
+        int readStart = (int)rec.qstart;
+        int readEnd   = (int)rec.qend;
+        char strand   = rec.strand;
+        char *path    = rec.path;
+        int pathLen   = (int)rec.plen;
+        int pathStart = (int)rec.pstart;
+        int pathEnd   = (int)rec.pend;
+        int qual      = rec.mapq;
+        char *cigar   = rec.cigar;
 
-        token = strtok_r(line, "\t", &saveptr);
-        while (token != NULL) {
-            switch (field) {
-                case 0: aln.readName = token; break;
-                case 1: aln.readLen = atoi(token); break;
-                case 2: aln.readStart = atoi(token); break;
-                case 3: aln.readEnd = atoi(token); break;
-                case 4: aln.strand = token[0]; break;
-                case 5: aln.path = strdup(token); break;
-                case 6: aln.pathLen = atoi(token); break;
-                case 7: aln.pathStart = atoi(token); break;
-                case 8: aln.pathEnd = atoi(token); break;
-                case 9: aln.matches = atoi(token); break;
-                case 10: aln.blockLen = atoi(token); break;
-                case 11: aln.qual = atoi(token); break;
-                default:
-                    if (strncmp(token, "cg:Z:", 5) == 0) aln.cigar = strdup(token + 5);
-                    break;
-            }
-            field++;
-            token = strtok_r(NULL, "\t", &saveptr);
-        }
+        // Discard reads that have no quality.
+        if (qual == 0) continue;
+        // A path and CIGAR are required to project the alignment.
+        if (!path || !cigar) continue;
 
-        // Discard reads that has no quality
-        if (aln.qual == 0) {
-            free(aln.path);
-            if (aln.cigar) free(aln.cigar);
-            continue;
-        }
+        // Ignore reads already mapped elsewhere (first mapping wins).
+        khint_t k = mapstr_get(h2, readName);
+        if (k < kh_end(h2)) continue;
 
-        // Check if read is already mapped to somewhere else. If yes, ignore the alignment
-        // TODO: check if this mapping has more qual score or smt else so it can be replaced
-        khint_t k = mapstr_get(h2, aln.readName);
-        if (k < kh_end(h2)) {
-            free(aln.path);
-            if (aln.cigar) free(aln.cigar);
-            continue;
-        }
-
-        // Get nodes and store in array. It is needed in case if it is mapped as reverse complement
+        // Collect the visited nodes (needed to handle reverse-complement reads).
         uint64_t *nodes;
-        int node_size = parse_nodes(aln.readName, aln.path, &nodes, segments, h1);
-        // Continue if the wile loop terminated because of missing segment
-        if (!node_size) {
-            free(aln.path);
-            if (aln.cigar) free(aln.cigar);
-            continue;
-        }
+        int node_size = parse_nodes(readName, path, &nodes, g);
+        if (!node_size) continue;
 
-        // If read mapped as rc, reverse the order of the nodes
-        if (aln.path[0] == '<') {
+        // If read mapped as rc, reverse the node order and mirror coordinates.
+        if (path[0] == '<') {
             reverse(nodes, node_size);
             {
                 int new_start = 0, new_end = 0;
-                fix_indices(aln.pathStart, aln.pathEnd, aln.pathLen, &new_start, &new_end);
-                aln.pathStart = new_start;
-                aln.pathEnd = new_end;
+                fix_indices(pathStart, pathEnd, pathLen, &new_start, &new_end);
+                pathStart = new_start;
+                pathEnd = new_end;
             }
             {
                 int new_start = 0, new_end = 0;
-                fix_indices(aln.readStart, aln.readEnd, aln.readLen, &new_start, &new_end);
-                aln.readStart = new_start;
-                aln.readEnd = new_end;
+                fix_indices(readStart, readEnd, readLen, &new_start, &new_end);
+                readStart = new_start;
+                readEnd = new_end;
             }
         }
 
-        // Initialize the cigar strings
+        // Initialize the cigar strings.
         char ops[MAX_CIGAR]; int op_index = 0;
 
-        // Soft clip for the prefix part of the read
-        for (int i = 0; i < aln.readStart; i++) ops[op_index++] = __CIGAR_SOFT_CLIP;
+        // Soft clip for the prefix part of the read.
+        for (int i = 0; i < readStart; i++) ops[op_index++] = __CIGAR_SOFT_CLIP;
 
         char cigar_ops[MAX_CIGAR];
-        int n_ops = parse_cigar(aln.cigar, cigar_ops, MAX_CIGAR, aln.path[0] == '<');
+        int n_ops = parse_cigar(cigar, cigar_ops, MAX_CIGAR, path[0] == '<');
         if (n_ops < 0) {
-            fprintf(stderr, "[ERROR] Unable to parse CIGAR %s in read %s\n", aln.cigar, aln.readName);
-            free(aln.path); free(nodes);
-            if (aln.cigar) free(aln.cigar);
+            fprintf(stderr, "[ERROR] Unable to parse CIGAR %s in read %s\n", cigar, readName);
+            free(nodes);
             continue;
         }
 
-        // Initialize the segments
+        // Initialize the segments (a segment is "reference" iff ref_name != NULL).
         int node_index = 0;
-        k = map32_get(h1, nodes[node_index]);
-        segment *seg = segments + kh_val(h1, k);
-        segment *temp_prev_seg = (seg->rank == 0 ? seg : NULL);
-        int p_length = strlen(seg->seq)-aln.pathStart;
+        const gfa_seg_t *seg = gfa_seg_at(g, gfa_idx(g, nodes[node_index]));
+        const gfa_seg_t *temp_prev_seg = (seg->ref_name ? seg : NULL);
+        int p_length = (int)seg->len - pathStart;
 
-        int reference_start = (seg->rank == 0 ? seg->start+aln.pathStart+1 : -1);
+        int reference_start = (seg->ref_name ? seg->start + pathStart + 1 : -1);
         int cigar_op_index = 0, is_reference_start_set = 0;
 
         while (cigar_op_index < n_ops) {
             char op = cigar_ops[cigar_op_index++];
 
-            if (!is_reference_start_set && seg->rank == 0 && CIGAR_REF(op)) {
+            if (!is_reference_start_set && seg->ref_name && CIGAR_REF(op)) {
                 if (op == __CIGAR_SEQUENCE_MATCH) is_reference_start_set = 1;
                 else reference_start++;
             }
 
-            if (seg->rank == 0) ops[op_index++] = op;
+            if (seg->ref_name) ops[op_index++] = op;
             else if (CIGAR_QUE(op)) ops[op_index++] = __CIGAR_INSERTION;
 
             if (CIGAR_REF(op)) {
@@ -171,11 +164,10 @@ int parse_gaf(const char* file_path, segment *segments, map32_t *h1, gaf_breakpo
 
                 node_index++;
                 if (node_index == node_size) break;
-                khint_t k = map32_get(h1, nodes[node_index]);
-                seg = segments + kh_val(h1, k);
-                p_length = strlen(seg->seq);
-                if (seg->rank == 0) {
-                    if(!is_reference_start_set) reference_start = seg->start;
+                seg = gfa_seg_at(g, gfa_idx(g, nodes[node_index]));
+                p_length = (int)seg->len;
+                if (seg->ref_name) {
+                    if (!is_reference_start_set) reference_start = seg->start;
 
                     if (temp_prev_seg != NULL) {
                         for (int index = temp_prev_seg->end; index < seg->start; index++)
@@ -187,17 +179,17 @@ int parse_gaf(const char* file_path, segment *segments, map32_t *h1, gaf_breakpo
             }
         }
 
-        // Soft clip for the end part of the read
-        for (int i = aln.readEnd; i < aln.readLen; i++) ops[op_index++] = __CIGAR_SOFT_CLIP;
+        // Soft clip for the end part of the read.
+        for (int i = readEnd; i < readLen; i++) ops[op_index++] = __CIGAR_SOFT_CLIP;
 
         #ifdef DEBUG
         // Validate cigar
         int cigar_query_count = 0;
-        for (int i=0; i<op_index; i++) {
+        for (int i = 0; i < op_index; i++) {
             if (CIGAR_QUE(ops[i])) cigar_query_count++;
         }
-        if (cigar_query_count != aln.readLen) 
-            fprintf(stderr, "[ERROR] CIGAR (query) mismatch in length. %d %d\n", cigar_query_count, aln.readLen);
+        if (cigar_query_count != readLen)
+            fprintf(stderr, "[ERROR] CIGAR (query) mismatch in length. %d %d\n", cigar_query_count, readLen);
         #endif
 
         char op = ops[0];
@@ -217,164 +209,35 @@ int parse_gaf(const char* file_path, segment *segments, map32_t *h1, gaf_breakpo
                 op_size = 1;
             }
         }
-        if (ops[op_index-1] == __CIGAR_SOFT_CLIP && seg->rank == 0) {
+        if (ops[op_index-1] == __CIGAR_SOFT_CLIP && seg->ref_name) {
             // Soft clip at the end detected
         }
 
-        // Cleanup
-        free(aln.path); free(nodes);
-        if (aln.cigar) free(aln.cigar);
-
         available(gaf_breakpoint, temp_breakpoints, temp_breakpoint_size, temp_breakpoint_capacity);
-        temp_breakpoints[temp_breakpoint_size].readStart = aln.readStart;
-        temp_breakpoints[temp_breakpoint_size].readEnd = aln.readEnd;
-        temp_breakpoints[temp_breakpoint_size].rc = aln.strand == '>' ? 1 : -1;
+        temp_breakpoints[temp_breakpoint_size].readStart = readStart;
+        temp_breakpoints[temp_breakpoint_size].readEnd = readEnd;
+        temp_breakpoints[temp_breakpoint_size].rc = strand == '+' ? 1 : -1;
         temp_breakpoints[temp_breakpoint_size].offset = 0; // TODO: fix offset for correct consensus
         temp_breakpoints[temp_breakpoint_size].type = SV_INS; // TODO: determine SV type
 
+        // Record the read name -> breakpoint index. The key is copied because
+        // the reader reuses/frees rec.qname on the next read.
         int absent;
-        k = mapstr_put(h2, aln.readName, &absent);
-        kh_val(h2, k) = temp_breakpoint_size;
+        char *key = strdup(readName);
+        validate(key)
+        k = mapstr_put(h2, key, &absent);
+        if (absent) kh_val(h2, k) = temp_breakpoint_size;
+        else free(key);
 
+        free(nodes);
         temp_breakpoint_size++;
-    }    
-    fclose(file);
-    free(line);
+    }
+
+    gaf_rec_clear(&rec);
+    gaf_close(reader);
 
     *gaf_breakpoints = temp_breakpoints;
     return temp_breakpoint_size;
-}
-
-int parse_gfa(const char* file_path, segment **segments, int *segment_size, map32_t *h1) {
-
-    // NOTE: Rank for each segment is set to be 1 as default.
-    // NOTE: It is assumed that ranks can be only 0 and 1. No rank > 1 is allowed
-    // NOTE: No overlap > 0 is allowed
-
-    size_t line_cap = MAX_LINE;
-    char *line = NULL;
-    FILE *file = io_open(file_path, &line, line_cap, "r");
-    int line_len = 0;
-    
-    // Allocation for Segment
-    int temp_segment_size = 0, segment_capacity = 1000000;
-    segment *temp_segments = (segment *)malloc(segment_capacity * sizeof(segment));
-    validate(temp_segments)
-
-    while ((line_len = io_read(file, &line, &line_cap))) {
-        if (line[0] == 'S') {
-            
-            available(segment, temp_segments, temp_segment_size, segment_capacity)
-            
-            char *saveptr;
-            char *token = strtok_r(line, "\t", &saveptr); // Skip 'S'
-            // ID
-            token = strtok_r(NULL, "\t", &saveptr); // ID
-            temp_segments[temp_segment_size].id = strtoull(token, NULL, 10);
-            
-            // Sequence
-            token = strtok_r(NULL, "\t", &saveptr); // Sequence string
-            size_t seq_len = strlen(token);
-            temp_segments[temp_segment_size].seq = malloc(seq_len + 1);
-            validate(temp_segments[temp_segment_size].seq)
-            strcpy(temp_segments[temp_segment_size].seq, token);
-            
-            temp_segments[temp_segment_size].rank = 1;
-            temp_segments[temp_segment_size].start = -1; 
-            temp_segments[temp_segment_size].end = seq_len;
-            temp_segments[temp_segment_size].next = NULL;
-            
-            khint_t k; int absent;
-            k = map32_put(h1, temp_segments[temp_segment_size].id, &absent);
-            kh_val(h1, k) = temp_segment_size; // set value as index in segments
-            temp_segment_size++;
-        } else if (line[0] == 'L') {
-            // Do nothing at this point
-        } else if (line[0] == 'P') {
-            char *token = strtok(line, "\t");
-            token = strtok(NULL, "\t"); // process path ID
-            token = strtok(NULL, "\t"); // process segment IDs
-
-            char *segment_token = strtok(token, ",");
-            int ref_pos = 0;
-
-            while (segment_token) {
-                size_t len = strlen(segment_token);
-                if (segment_token[len - 1] == '+') segment_token[len - 1] = '\0'; // remove the trailing '+'
-
-                uint64_t seg_id = strtoull(segment_token, NULL, 10);
-                khint_t k = map32_get(h1, seg_id);
-                segment *current_segment = temp_segments + kh_val(h1, k);
-                
-                current_segment->rank = 0;
-                current_segment->start = ref_pos;
-                ref_pos += strlen(current_segment->seq);
-                current_segment->end = ref_pos;
-                segment_token = strtok(NULL, ",");  // move to next segment
-            }
-        }
-    }
-
-    rewind(file);
-
-    // Set start pos of alternative paths' nodes. It is needed for MSE for large INS/ALT/DUP
-    // It is assumed that the links are ordered w.r.t. original and relative positions
-    while ((line_len = io_read(file, &line, &line_cap))) {
-        if (line[0] == 'L') {
-            uint64_t id1, id2;
-            char strand1, strand2;
-            size_t overlap = 0;
-            sscanf(line, "L\t%lu\t%c\t%lu\t%c\t%luM", &id1, &strand1, &id2, &strand2, &overlap);
-
-            // Here, we validate overlaps, making sure that they are none (0)
-            if (overlap) {
-                fprintf(stderr, "[ERROR] Overlaps are not zero, cannot make conversion.\n");
-                exit(1);
-            }
-
-            khint_t k1 = map32_get(h1, id1);
-            if (kh_val(h1, k1) == kh_end(h1)) {
-                fprintf(stderr, "[ERROR] Segment %lu does not exists.\n", id1);
-                exit(1);
-            }
-            segment *segment1 = temp_segments + kh_val(h1, k1);
-
-            khint_t k2 = map32_get(h1, id2);
-            if (kh_val(h1, k2) == kh_end(h1)) {
-                fprintf(stderr, "[ERROR] Segment %lu does not exists.\n", id2);
-                exit(1);
-            }
-            segment *segment2 = temp_segments + kh_val(h1, k2);
-
-            if (segment1->rank && segment2->rank) {
-                segment1->next = segment2;
-            } else if (segment1->rank == 0 && segment2->rank) {
-                segment2->start = 0;
-            }
-        }
-    }
-
-    io_close(file, &line);
-
-    for (int i = 0; i < temp_segment_size; i++) {
-        if (temp_segments[i].rank == 1 && temp_segments[i].start == 0) {
-            int path_length = 0;
-
-            segment *current_segment = temp_segments + i;
-
-            while (current_segment != NULL) {
-                current_segment->start = path_length;
-                path_length += current_segment->end;
-                current_segment->end = path_length;
-                current_segment = current_segment->next;
-            }
-        }
-    }
-
-    *segments = temp_segments;
-    *segment_size = temp_segment_size;
-
-    return 0;
 }
 
 int parse_fq(const char* file_path, gaf_breakpoint* gaf_breakpoints, mapstr_t *h2) {
@@ -391,10 +254,10 @@ int parse_fq(const char* file_path, gaf_breakpoint* gaf_breakpoints, mapstr_t *h
         khint64_t k = mapstr_get(h2, seq->name.s);
         if (k == kh_end(h2))
             continue;
-        
+
         // gaf_breakpoint* aln = gaf_breakpoints + kh_val(h2, k);
         (void)(gaf_breakpoints + kh_val(h2, k));
-        
+
         // TODO: get substring from the read and prepare for MSA
     }
 
@@ -404,37 +267,48 @@ int parse_fq(const char* file_path, gaf_breakpoint* gaf_breakpoints, mapstr_t *h
 }
 
 int discover(int argc, char *argv[]) {
-    
+
     disc_args params;
     init_disc(argc, argv, &params);
 
-    map32_t *h1 = map32_init();
-
-    segment *segments; int segment_size;
-    if (parse_gfa(params.gfa_file, &segments, &segment_size, h1)) {
-        fprintf(stderr, "[ERROR] GFA file parsing resulted in null.\n");
+    // Read the graph with links (to validate overlaps) and paths (reference layout).
+    gfa_t *g = gfa_read(params.gfa_file, GFA_LINKS | GFA_PATHS);
+    if (!g) {
+        fprintf(stderr, "[ERROR] GFA file parsing failed.\n");
         return 0;
+    }
+
+    // svtrek requires zero-overlap links.
+    for (int32_t i = 0; i < gfa_n_link(g); i++) {
+        if (gfa_link_at(g, i)->overlap != 0) {
+            fprintf(stderr, "[ERROR] Overlaps are not zero, cannot make conversion.\n");
+            gfa_destroy(g);
+            return 0;
+        }
     }
 
     mapstr_t *h3 = mapstr_init();
 
-    gaf_breakpoint *gaf_breakpoints; int gaf_breakpoint_size;
-    if ((gaf_breakpoint_size = parse_gaf(params.gaf_file, segments, h1, &gaf_breakpoints, h3))) {
+    gaf_breakpoint *gaf_breakpoints = NULL;
+    // parse_gaf returns the breakpoint count (>= 0), or -1 if the file could
+    // not be opened. (The original test here was inverted, aborting on success.)
+    int gaf_breakpoint_size = parse_gaf(params.gaf_file, g, &gaf_breakpoints, h3);
+    if (gaf_breakpoint_size < 0) {
         fprintf(stderr, "[ERROR] GAF file parsing failed.\n");
+        mapstr_destroy(h3);
+        gfa_destroy(g);
         return 0;
     }
 
     parse_fq(params.fq_file, gaf_breakpoints, h3);
 
-    // Cleanup segments
-    for (int i = 0; i < segment_size; i++) {
-        if (segments[i].seq) free(segments[i].seq);
-    }
-    free(segments);
     free(gaf_breakpoints);
 
-    map32_destroy(h1);
+    // Free the strdup'd read-name keys, then the maps and graph.
+    khint_t ki;
+    kh_foreach(h3, ki) { free((char *)kh_key(h3, ki)); }
     mapstr_destroy(h3);
+    gfa_destroy(g);
 
     return 1;
 }

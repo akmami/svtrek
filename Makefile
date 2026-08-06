@@ -4,8 +4,8 @@ OBJS := $(SRCS:.c=.o)
 
 # directories
 CURRENT_DIR := $(shell pwd)
-DEPS_DIR    := $(CURRENT_DIR)/deps
-BIN_DIR     := $(CURRENT_DIR)/bin
+DEPS_DIR    := deps
+BIN_DIR     := bin
 
 # compiler
 GXX := gcc
@@ -20,6 +20,11 @@ endif
 ABPOA_DIR      := $(DEPS_DIR)/abPOA
 ABPOA_CXXFLAGS := -I$(ABPOA_DIR)/include
 ABPOA_LDFLAGS  := $(ABPOA_DIR)/lib/libabpoa.a -lm -lz
+
+# akhal (libakhal: GFA/GAF readers etc.)
+AKHAL_DIR      := $(DEPS_DIR)/akhal
+AKHAL_CXXFLAGS := -I$(AKHAL_DIR)/include
+AKHAL_LDFLAGS  := $(AKHAL_DIR)/lib/libakhal.a -lz -lm
 
 # htslib
 #   HTSLIB=auto    use system htslib if pkg-config finds it, else local  (default)
@@ -47,18 +52,18 @@ endif
 
 # build
 $(TARGET): $(OBJS)
-	$(GXX) $(CXXFLAGS) -o $@ $^ $(HTSLIB_LDFLAGS) $(ABPOA_LDFLAGS)
+	$(GXX) $(CXXFLAGS) -o $@ $^ $(AKHAL_LDFLAGS) $(HTSLIB_LDFLAGS) $(ABPOA_LDFLAGS)
 	rm -f *.o
 
 %.o: %.c
-	$(GXX) $(CXXFLAGS) $(HTSLIB_CXXFLAGS) $(ABPOA_CXXFLAGS) -c $< -o $@
+	$(GXX) $(CXXFLAGS) $(HTSLIB_CXXFLAGS) $(ABPOA_CXXFLAGS) $(AKHAL_CXXFLAGS) -c $< -o $@
 
 # dependencies
-.PHONY: install deps deps-abpoa deps-htslib clean distclean
+.PHONY: install deps deps-abpoa deps-htslib deps-akhal clean distclean
 
 install: deps
 
-deps: deps-abpoa deps-htslib
+deps: deps-abpoa deps-htslib deps-akhal
 
 # abPOA
 deps-abpoa:
@@ -68,6 +73,15 @@ deps-abpoa:
 	fi
 	@echo ">> building abPOA"
 	$(MAKE) -C $(ABPOA_DIR)
+
+# akhal
+deps-akhal:
+	@if [ ! -f "$(AKHAL_DIR)/Makefile" ]; then \
+		echo ">> initialising akhal submodule ($(AKHAL_DIR))"; \
+		git submodule update --init --recursive -- deps/akhal; \
+	fi
+	@echo ">> building akhal"
+	$(MAKE) -C $(AKHAL_DIR)
 
 # htslib
 deps-htslib:

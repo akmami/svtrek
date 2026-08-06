@@ -2,3 +2,7 @@
 	path = deps/abPOA
 	url = https://github.com/yangao07/abPOA.git
 	ignore = dirty
+[submodule "akhal"]
+	path = deps/akhal
+	url = https://github.com/akmami/akhal.git
+	ignore = dirty
